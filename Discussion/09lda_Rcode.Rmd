@@ -1,0 +1,378 @@
+## 1. Overview of LDA
+
+**Latent Dirichlet Allocation (LDA)** is a generative probabilistic model for collections of discrete data, typically described as “documents” composed of “words.” LDA assumes:
+
+- There are $K$ latent **topics** underlying the observed data.
+- Each “document” exhibits the topics with different proportions.
+- Each **topic** is characterized by a specific distribution over the vocabulary of possible words.
+
+---
+
+## 2. Intuition
+
+1. **Mixture of Topics per Document**: Each document is seen as a combination of a small number of topics.  
+2. **Word Distribution per Topic**: Each topic is a probability distribution over the entire vocabulary.  
+3. **Latent Variables**: Observed data (words) arise from hidden topic assignments.
+
+---
+
+## 3. Generative Model: Statistical Notation
+
+### 3.1 Symbols
+
+- **$\alpha$**: Hyperparameter for the Dirichlet prior over the topic proportions per document.
+- **$\beta$** (sometimes called $\eta$): Hyperparameter for the Dirichlet prior over the word distributions per topic.
+- **$\theta_d$**: Topic proportion vector for document $d$,  
+  $$
+    \theta_d = (\theta_{d,1}, \theta_{d,2}, \ldots, \theta_{d,K}),
+    \quad\text{and}\quad \sum_{k=1}^{K} \theta_{d,k} = 1.
+  $$
+- **$\phi_k$**: Word distribution for topic $k$,  
+  $$
+    \phi_k = (\phi_{k,1}, \phi_{k,2}, \ldots, \phi_{k,V}),
+    \quad\text{and}\quad \sum_{w=1}^{V} \phi_{k,w} = 1.
+  $$
+  where $V$ is the vocabulary size.
+- **$z_{d,n}$**: Latent topic assignment for the $n$-th word in document $d$.
+- **$w_{d,n}$**: Observed word at position $n$ in document $d$.
+
+### 3.2 Generative Steps
+
+1. For each topic $k$ ($1 \leq k \leq K$):  
+   - Draw $\phi_k \sim \mathrm{Dirichlet}(\beta)$.
+
+2. For each document $d$ ($1 \leq d \leq D$):  
+   - Draw $\theta_d \sim \mathrm{Dirichlet}(\alpha)$.
+   - For each word position $n$ in document $d$:
+     1. Draw topic assignment $z_{d,n}$ from $\mathrm{Multinomial}(\theta_d)$.
+     2. Draw word $w_{d,n}$ from $\mathrm{Multinomial}(\phi_{z_{d,n}})$.
+
+---
+
+## 4. Matrices in LDA
+
+1. **$\gamma$ (Gamma) or $\Theta$**:  
+   - A $(D \times K)$ matrix storing the posterior estimates of topic proportions for each document.  
+   - Row $d$ in $\gamma$ corresponds to the vector $(\hat{\theta}_{d,1}, \ldots, \hat{\theta}_{d,K})$.
+
+2. **$\beta$ (Beta) or $\Phi$**:  
+   - A $(K \times V)$ matrix.  
+   - Row $k$ corresponds to the word distribution $(\hat{\phi}_{k,1}, \ldots, \hat{\phi}_{k,V})$ for topic $k$.  
+   - In some software, stored in log form for numerical stability.
+
+---
+
+## 5. Properties
+
+- **Probabilistic Topic Mixtures**: Each row of $\gamma$ sums to 1, indicating how much each topic appears in a document.
+- **Topic–Word Distributions**: Each row of $\beta$ sums to 1, showing how each topic allocates its probability mass over words.
+- **Dimensionality Reduction**: LDA factorizes a document–word matrix into two smaller matrices, $\Theta$ and $\Phi$.
+- **Hyperparameters**: $\alpha$ and $\beta$ affect the sparsity of topic mixtures and word distributions.
+
+---
+
+## 6. Usage
+
+1. **Topic Analysis**: Inspect $\beta$ (top words per topic) to interpret each topic.
+2. **Document Representation**: Use $\gamma$ for further analysis (e.g., clustering documents by topic distributions).
+3. **Model Selection**: Often choose $K$ via log-likelihood/perplexity curves or domain interpretability.
+
+---
+
+## 7. Interpretation
+
+- **$\gamma$ / $\Theta$**: Each document’s mixture across $K$ topics.
+- **$\beta$ / $\Phi$**: Each topic’s distribution over $V$ words. Highest-probability words in a row of $\beta$ help label the topic.
+
+---
+
+## 8. Conclusion
+
+Latent Dirichlet Allocation provides a **probabilistic** and **interpretable** approach to factorizing high-dimensional document–word data into a smaller number of latent topics. The key matrices:
+
+- **$\gamma$** (or $\Theta$): Document–topic proportions.
+- **$\beta$** (or $\Phi$): Topic–word distributions.
+
+These reveal hidden structure and enable deeper insights into the underlying data.
+```{r}
+###############################################
+## 1. Libraries and Data
+###############################################
+library(topicmodels)  # For LDA
+library(Matrix)       # For sparse matrices
+
+# The AssociatedPress data is built into the 'topicmodels' package.
+# It is a DocumentTermMatrix object where rows = documents, columns = terms, and
+# values = counts/frequencies of each term in each document.
+data("AssociatedPress", package = "topicmodels")
+
+# Check the size of the dataset.
+cat("Dimensions of AssociatedPress dataset:\n")
+print(dim(AssociatedPress))  # e.g. 2246 documents, 10473 terms
+
+###############################################
+## 2. Fitting an LDA Model (Gibbs Sampling)
+###############################################
+k <- 5  # number of topics to discover
+AP_lda <- LDA(
+  AssociatedPress,
+  k = k,
+  method = "Gibbs",
+  control = list(
+    alpha = 10,   # Dirichlet prior hyperparameter for doc-topic distributions
+    delta = 0.1,  # Dirichlet prior hyperparameter for topic-word distributions
+    seed = 68
+  )
+)
+
+cat("\nLDA model fitted with k =", k, "\n")
+
+###############################################
+## 3. Extracting & Interpreting Gamma and Beta
+###############################################
+# The LDA model produces two key matrices:
+
+# 3.1 gamma: doc-topic distribution
+gamma <- AP_lda@gamma
+# 'gamma' is (num_docs x k). Each row is a probability distribution over the k topics
+# for a single document. Rows sum to ~1, so gamma[i, j] is the probability
+# that document i belongs to topic j.
+
+# 3.2 beta_log: topic-word distribution (in log scale)
+beta_log <- AP_lda@beta
+# 'beta_log' is (k x num_terms). Row i is the log of the probability distribution
+# of terms for topic i. Summing the *exponentiated* values in a row
+# roughly equals 1 for each topic.
+
+# Convert from log probabilities to actual probabilities
+beta <- exp(beta_log)
+# 'beta' is now (k x num_terms), with each row summing to ~1.
+
+cat("\nDimensions of gamma (doc x topics):", dim(gamma), "\n")
+cat("Dimensions of beta (topics x terms):", dim(beta), "\n")
+
+# Quick check: Row sum of gamma for doc 1, row sum of beta for topic 1
+cat("\nSum of the doc-topic distribution for the 1st doc:",
+    sum(gamma[1,]), "\n")
+cat("Sum of the topic-word distribution for the 1st topic:",
+    sum(beta[1,]), "\n")
+
+###############################################
+## 4. Selecting k via Log-Likelihood
+###############################################
+# WHAT THIS STEP DOES:
+# We try different values of k (2, 3, 4, 5, 6 in this example) and fit a separate
+# LDA model for each. We record the model's log-likelihood (LL) to see how
+# it changes as k grows. This helps us decide which k might be "optimal" or
+# provide a balance between interpretability and model fit. Often, if you plot
+# log-likelihood vs. k, you'll see an "elbow" or diminishing returns as k increases.
+
+k_values <- 2:6
+LL_vals <- numeric(length(k_values))
+
+for (i in seq_along(k_values)) {
+  cat("\nFitting LDA with k =", k_values[i], "...\n")
+  model_i <- LDA(
+    AssociatedPress,
+    k = k_values[i],
+    method = "Gibbs",
+    control = list(alpha = 10, delta = 0.1, seed = 68)
+  )
+  # logLik() gives us the log-likelihood of the fitted LDA model
+  LL_vals[i] <- logLik(model_i)
+}
+
+# Let's plot the log-likelihood values vs. k
+plot(
+  x = k_values, y = LL_vals,
+  type = "b", pch = 19,
+  xlab = "Number of Topics (k)",
+  ylab = "Log-Likelihood",
+  main = "LDA Model Selection by Log-Likelihood"
+)
+
+###############################################
+## 5. Interpreting Topics with Top Words
+###############################################
+# WHAT THIS STEP DOES:
+# Each topic has a probability distribution over words (beta). To "interpret" a topic,
+# we often look at the top words (by probability). These words collectively provide
+# insight into the theme or subject matter of the topic.
+
+top_words <- 10   # how many top words we want per topic
+top_terms_list <- vector("list", k)
+
+for (topic_i in 1:k) {
+  # We order the words by their probability in topic_i, descending.
+  word_order <- order(beta[topic_i, ], decreasing = TRUE)
+  # Take the top 'top_words' entries in that row.
+  top_terms_list[[topic_i]] <- colnames(AssociatedPress)[word_order[1:top_words]]
+}
+
+cat("\nTop", top_words, "words for each of the", k, "topics:\n")
+print(top_terms_list)
+
+###############################################
+## Recap:
+###############################################
+# 1) We loaded the AssociatedPress dataset, which is analogous to a user–Like matrix
+#    but for documents and terms.
+# 2) We fit LDA with a chosen k=5. This produced doc-topic (gamma) and topic-word (beta) distributions.
+# 3) 'gamma[i, ]' indicates how document i is split among the k topics.
+# 4) 'beta[i, ]' indicates how topic i is split among the vocabulary of terms.
+# 5) We repeated the LDA for a range of k (2..6) and recorded the log-likelihood.
+#    The shape of the log-likelihood curve can guide k selection.
+# 6) We extracted the top words for each topic, helping us interpret the meaning
+#    of those topics (e.g., if top words relate to politics, sports, finance, etc.).
+
+```
+
+```{r}
+##############################################
+## 1. Load Packages
+##############################################
+library(Matrix)       # For rsparsematrix (to create a random sparse matrix)
+library(irlba)        # For truncated SVD (on large sparse matrices)
+library(topicmodels)   # For LDA
+
+##############################################
+## 2. Create a Default (Random) Sparse Matrix
+##############################################
+# We'll generate a random user–Like-like matrix:
+#   - Rows: "users" (or documents)
+#   - Columns: "items" (or terms / likes)
+#   - Entries: 1 with small probability -> very sparse.
+# This is just a stand-in for a real user–Like matrix.
+
+set.seed(123)  # For reproducibility
+n_users <- 50
+n_items <- 100
+density <- 0.05  # 5% chance of a "1" in each cell
+
+# rsparsematrix() generates a random sparse matrix
+# We'll store it as M.
+M <- rsparsematrix(
+  nrow    = n_users,
+  ncol    = n_items,
+  density = density,
+  rand.x  = function(n) 1  # each non-zero entry is '1'
+)
+
+cat("Matrix Dimensions:", dim(M), "\n")
+cat("Non-zero entries in M:", sum(M), "\n")
+cat("Proportion of non-zeros:",
+    round(sum(M) / (n_users * n_items), 4), "\n\n")
+
+##############################################
+## 3. Dimensionality Reduction via SVD
+##############################################
+# The irlba() function performs truncated SVD on sparse matrices efficiently.
+
+k_svd <- 5  # number of SVD dimensions to extract
+M_svd <- irlba(M, nv = k_svd)
+
+# M_svd$u: left singular vectors (n_users x k_svd)
+# M_svd$d: singular values (length = k_svd)
+# M_svd$v: right singular vectors (n_items x k_svd)
+
+cat("SVD singular values:\n")
+print(M_svd$d)
+
+# We can visually inspect the "scree" plot of singular values:
+plot(M_svd$d, type = "b", pch = 19,
+     main = "SVD Scree Plot (Singular Values)",
+     xlab = "Index (1..k_svd)", ylab = "Singular Value")
+
+# The matrices u and v are the "scores" for users and items, respectively.
+u <- M_svd$u  # dimension: 50 x 5
+v <- M_svd$v  # dimension: 100 x 5
+
+##############################################
+## (Optional) Factor Rotation for SVD
+##############################################
+# We can rotate the SVD's right singular vectors (v) to potentially
+# improve interpretability, e.g., varimax rotation:
+v_rot <- unclass(varimax(M_svd$v)$loadings)
+# Then the user scores (u_rot) can be recomputed as:
+u_rot <- as.matrix(M %*% v_rot)
+
+# 'u_rot' and 'v_rot' are the varimax-rotated versions of SVD factors.
+
+##############################################
+## 4. Dimensionality Reduction via LDA
+##############################################
+# We treat M like a "document-term" matrix:
+#   - Each row = "document" (user)
+#   - Each column = "term" (item or 'like')
+#   - Values = 0/1 counts
+
+k_lda <- 5  # number of topics to discover
+M_lda <- LDA(M,
+             k = k_lda,
+             method = "Gibbs",
+             control = list(seed = 42,
+                            alpha = 10,
+                            delta = 0.1))
+
+# From LDA, we get:
+# gamma: doc-topic (user-topic) distributions
+# beta:  topic-term (topic-item) distributions (in log form internally)
+
+gamma <- M_lda@gamma
+beta_log <- M_lda@beta
+beta <- exp(beta_log)  # convert log probabilities to actual probabilities
+
+cat("\nLDA: 'gamma' dimensions (users x topics):",
+    paste(dim(gamma), collapse = " x "), "\n")
+cat("LDA: 'beta' dimensions (topics x items):",
+    paste(dim(beta), collapse = " x "), "\n")
+
+##############################################
+## 5. Interpreting LDA
+##############################################
+# Each row in gamma is a user's distribution over the k_lda topics.
+# Summation along a row is ~1.
+
+cat("\nSum of gamma for user 1 across all topics:",
+    sum(gamma[1,]), "\n")
+
+# Each row in beta is a topic's distribution over n_items, summing to ~1.
+cat("Sum of beta for topic 1 across all items:",
+    sum(beta[1,]), "\n\n")
+
+##############################################
+## 6. Top Items per Topic
+##############################################
+# We can examine the "top N" items that define each topic the most.
+top_n <- 5
+top_items <- vector("list", k_lda)
+
+for (t in 1:k_lda) {
+  # Order item probabilities in descending order
+  item_order <- order(beta[t, ], decreasing = TRUE)
+  # Identify top items for topic t
+  top_items[[t]] <- paste0("Item_", item_order[1:top_n])
+}
+
+cat("Top", top_n, "items for each LDA topic:\n")
+print(top_items)
+
+###########################################################
+## Summary Comments
+###########################################################
+# - We created a random user–item matrix 'M' with 50 users x 100 items,
+#   containing 5% 'likes' (1's). 
+# - We performed SVD with 'irlba' (truncated for big/sparse data).
+#   => u, v, and singular values. We can interpret them as continuous
+#      "user factors" and "item factors."
+# - We performed LDA with 'topicmodels' on the same matrix.
+#   => gamma (user-topic) and beta (topic-item) distributions.
+#      Summations along each row of gamma or beta are ~1.
+#      We interpret topics by looking at top items per topic.
+#
+# This code chunk demonstrates how to do both methods with the
+# default random data (no built-in data from 'irlba' package).
+
+```
+
+
